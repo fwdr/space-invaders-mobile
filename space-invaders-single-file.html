@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Retro Space Invaders</title>
+    <style>
+        @font-face {
+            font-family: 'RetroPixel';
+            src: url('https://fonts.cdnfonts.com/css/press-start-2p') format('woff2');
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            position: fixed;
+        }
+
+        body {
+            font-family: 'RetroPixel', 'Courier New', monospace;
+            background-color: #000;
+            color: #33ff33;
+            touch-action: none;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #loading-screen {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            z-index: 100;
+        }
+
+        .content {
+            text-align: center;
+            animation: pulsate 1.5s infinite alternate;
+            padding: 20px;
+            width: 100%;
+            max-width: 500px;
+        }
+
+        @keyframes pulsate {
+            0% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            text-shadow: 0 0 5px #33ff33;
+        }
+
+        #start-button {
+            margin-top: 2rem;
+            padding: 0.8rem 1.5rem;
+            background-color: transparent;
+            color: #33ff33;
+            border: 2px solid #33ff33;
+            font-family: inherit;
+            font-size: 1.2rem;
+            cursor: pointer;
+            border-radius: 5px;
+            box-shadow: 0 0 10px #33ff33;
+            transition: all 0.3s;
+        }
+
+        #start-button:hover, #start-button:active {
+            background-color: #33ff33;
+            color: #000;
+        }
+
+        #game-container {
+            width: 100%;
+            height: 100%;
+            position: fixed;
+            top: 0;
+            left: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #score-panel {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: #33ff33;
+            font-size: 1rem;
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            min-height: 40px;
+            border-bottom: 1px solid #33ff33;
+        }
+
+        #game-canvas {
+            background-color: #000;
+            width: 100%;
+            flex-grow: 1;
+            touch-action: none;
+        }
+
+        /* Portrait orientation specific styles */
+        @media screen and (orientation: portrait) {
+            h1 {
+                font-size: 1.8rem;
+            }
+            
+            #start-button {
+                font-size: 1rem;
+                padding: 0.7rem 1.2rem;
+            }
+            
+            #score-panel {
+                font-size: 0.9rem;
+                padding: 8px;
+            }
+        }
+
+        /* iPhone X and newer with notch */
+        @supports (padding: max(0px)) {
+            #score-panel {
+                padding-left: max(10px, env(safe-area-inset-left));
+                padding-right: max(10px, env(safe-area-inset-right));
+                padding-top: max(10px, env(safe-area-inset-top));
+            }
+            
+            #game-canvas {
+                padding-bottom: env(safe-area-inset-bottom);
+            }
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading-screen">
+        <div class="content">
+            <h1>SPACE INVADERS</h1>
+            <p>Get ready to defend Earth!</p>
+            <button id="start-button">START GAME</button>
+        </div>
+    </div>
+    
+    <div id="game-container" class="hidden">
+        <div id="score-panel">
+            <div id="current-score">Score: 0</div>
+            <div id="high-score">High Score: 0</div>
+        </div>
+        <canvas id="game-canvas"></canvas>
+    </div>
+
+    <script>
+        // Game constants
+        const ENEMY_ROWS = 5;
+        const ENEMIES_PER_ROW = 10;
+        const ENEMY_PADDING = 10;
+        const PLAYER_SPEED = 7;
+        const BULLET_SPEED = 7;
+        const ENEMY_BULLET_SPEED = 3;
+        const ENEMY_MOVE_INTERVAL = 1000;
+        const SHIELD_ROWS = 4;
+        const SHIELD_COLS = 8;
+        const SHIELD_COUNT = 3;
+
+        // Game variables
+        let canvas;
+        let ctx;
+        let player;
+        let bullets = [];
+        let enemies = [];
+        let enemyBullets = [];
+        let shields = [];
+        let score = 0;
+        let highScore = localStorage.getItem('highScore') || 0;
+        let gameActive = false;
+        let lastTime = 0;
+        let enemyDirection = 1;
+        let enemyMoveDownCounter = 0;
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let directionChanges = 0;
+        let baseEnemyFireChance = 0.003;
+        let currentEnemyFireChance = baseEnemyFireChance;
+        let isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+        let isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        let gameScale = 1.0;
+        let isPortrait = window.innerHeight > window.innerWidth;
+        let lastTouchTime = 0;
+
+        // Game initialization
+        document.addEventListener('DOMContentLoaded', () => {
+            // Setup load screen
+            const startButton = document.getElementById('start-button');
+            startButton.addEventListener('click', startGame);
+            
+            // Update high score display
+            document.getElementById('high-score').textContent = `High Score: ${highScore}`;
+            
+            // Force portrait mode warning on desktops
+            checkOrientation();
+            window.addEventListener('resize', checkOrientation);
+        });
+
+        // Check if device is in portrait mode
+        function checkOrientation() {
+            isPortrait = window.innerHeight > window.innerWidth;
+            
+            // Update scaling if game is active
+            if (gameActive && canvas) {
+                resizeCanvas();
+            }
+        }
+
+        // Start the game
+        function startGame() {
+            const loadingScreen = document.getElementById('loading-screen');
+            const gameContainer = document.getElementById('game-container');
+            
+            loadingScreen.classList.add('hidden');
+            gameContainer.classList.remove('hidden');
+            
+            canvas = document.getElementById('game-canvas');
+            ctx = canvas.getContext('2d');
+            
+            // Set canvas dimensions to match the viewport
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            
+            // Initialize game objects
+            createPlayer();
+            createEnemies();
+            createShields();
+            
+            // Setup event listeners for controls
+            setupControls();
+            
+            // Reset game variables
+            directionChanges = 0;
+            currentEnemyFireChance = baseEnemyFireChance;
+            
+            // Start game loop
+            gameActive = true;
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Resize canvas to fit the screen
+        function resizeCanvas() {
+            // Get actual viewport dimensions
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            
+            // Update portrait mode status
+            isPortrait = viewportHeight > viewportWidth;
+            
+            // Set canvas size to match viewport
+            canvas.width = viewportWidth;
+            
+            // Adjust height based on device and orientation
+            if (isMobile) {
+                // Mobile devices: account for browser UI elements
+                canvas.height = viewportHeight - (document.getElementById('score-panel').offsetHeight);
+                
+                // Additional adjustment for Safari on iOS
+                if (isSafari) {
+                    canvas.height *= 0.95; // Further reduce height on Safari
+                }
+            } else {
+                // Desktop: use most of the screen
+                canvas.height = viewportHeight * 0.9;
+            }
+            
+            // Calculate scale factor based on screen size and orientation
+            calculateGameScale();
+            
+            // Reposition game elements if they exist
+            if (player) {
+                repositionGameElements();
+            }
+        }
+
+        // Calculate scale factor based on screen dimensions
+        function calculateGameScale() {
+            // Reference dimensions
+            let baseWidth, baseHeight;
+            
+            if (isPortrait) {
+                // Portrait reference dimensions (higher aspect ratio)
+                baseWidth = 400;
+                baseHeight = 700;
+            } else {
+                // Landscape reference dimensions
+                baseWidth = 800;
+                baseHeight = 600;
+            }
+            
+            const widthScale = canvas.width / baseWidth;
+            const heightScale = canvas.height / baseHeight;
+            
+            // Use the smaller scale to ensure everything fits
+            gameScale = Math.min(widthScale, heightScale) * 0.85;
+            
+            // Ensure minimum and maximum scale constraints
+            gameScale = Math.max(0.4, Math.min(gameScale, 1.2));
+            
+            // Additional adjustments for very small screens
+            if (isPortrait && canvas.width < 350) {
+                gameScale *= 0.85;
+            }
+        }
+
+        // Create player ship
+        function createPlayer() {
+            const basePlayerWidth = 32;
+            const basePlayerHeight = 24;
+            const scaledWidth = Math.round(basePlayerWidth * gameScale);
+            const scaledHeight = Math.round(basePlayerHeight * gameScale);
+            
+            // Position player at bottom of screen with padding
+            const bottomPadding = isPortrait ? 60 * gameScale : 20 * gameScale;
+            
+            player = {
+                x: canvas.width / 2 - scaledWidth / 2,
+                y: canvas.height - scaledHeight - bottomPadding,
+                width: scaledWidth,
+                height: scaledHeight,
+                speed: PLAYER_SPEED * gameScale,
+                color: '#33ff33'
+            };
+        }
+
+        // Create enemy formation
+        function createEnemies() {
+            enemies = [];
+            const baseEnemyWidth = 24;
+            const baseEnemyHeight = 16;
+            const scaledEnemyWidth = Math.round(baseEnemyWidth * gameScale);
+            const scaledEnemyHeight = Math.round(baseEnemyHeight * gameScale);
+            const scaledPadding = Math.round(ENEMY_PADDING * gameScale);
+            
+            // Calculate width available for enemies and adjust padding if needed
+            const availableWidth = canvas.width * 0.9; // Use 90% of canvas width
+            const requiredWidth = ENEMIES_PER_ROW * scaledEnemyWidth;
+            const adjustedPadding = Math.max(2, Math.min(scaledPadding, 
+                (availableWidth - requiredWidth) / (ENEMIES_PER_ROW - 1)));
+            
+            const totalEnemyWidth = ENEMIES_PER_ROW * scaledEnemyWidth + (ENEMIES_PER_ROW - 1) * adjustedPadding;
+            const startX = (canvas.width - totalEnemyWidth) / 2;
+            
+            // Start higher up in portrait mode
+            const topMargin = isPortrait ? 60 * gameScale : 50 * gameScale;
+            
+            for (let row = 0; row < ENEMY_ROWS; row++) {
+                for (let col = 0; col < ENEMIES_PER_ROW; col++) {
+                    enemies.push({
+                        x: startX + col * (scaledEnemyWidth + adjustedPadding),
+                        y: topMargin + row * (scaledEnemyHeight + scaledPadding),
+                        width: scaledEnemyWidth,
+                        height: scaledEnemyHeight,
+                        color: getEnemyColor(row),
+                        points: (ENEMY_ROWS - row) * 10
+                    });
+                }
+            }
+        }
+
+        // Get enemy color based on row
+        function getEnemyColor(row) {
+            const colors = ['#FF5555', '#FF55FF', '#5555FF', '#55FFFF', '#55FF55'];
+            return colors[row % colors.length];
+        }
+
+        // Setup control event listeners
+        function setupControls() {
+            // Keyboard controls
+            window.addEventListener('keydown', handleKeyDown);
+            
+            // Touch controls - allow movement anywhere on screen
+            canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+            canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+            canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+        }
+
+        // Handle keyboard input
+        function handleKeyDown(e) {
+            switch (e.key) {
+                case 'ArrowLeft':
+                    movePlayer(-1);
+                    break;
+                case 'ArrowRight':
+                    movePlayer(1);
+                    break;
+                case ' ':
+                    fireBullet();
+                    break;
+            }
+        }
+
+        // Handle touch start
+        function handleTouchStart(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            touchStartX = touch.clientX;
+            touchStartY = touch.clientY;
+            lastTouchTime = Date.now();
+        }
+
+        // Handle touch move - allow movement anywhere on screen
+        function handleTouchMove(e) {
+            e.preventDefault();
+            if (e.touches.length > 0) {
+                const touch = e.touches[0];
+                const diffX = touch.clientX - touchStartX;
+                
+                // Allow movement from any touch position on screen
+                if (Math.abs(diffX) > 5) { // Small threshold to prevent tiny movements
+                    movePlayer(diffX > 0 ? 1 : -1, Math.abs(diffX) / 10);
+                    touchStartX = touch.clientX;
+                }
+            }
+        }
+
+        // Handle touch end - fire if it was a quick tap
+        function handleTouchEnd(e) {
+            e.preventDefault();
+            
+            // If touch duration was short (a tap) and not much movement, fire bullet
+            const touchDuration = Date.now() - lastTouchTime;
+            if (touchDuration < 200) { // less than 200ms = tap
+                fireBullet();
+            }
+        }
+
+        // Move the player
+        function movePlayer(direction, multiplier = 1) {
+            const speed = player.speed * multiplier;
+            player.x += direction * speed;
+            
+            // Keep player within canvas bounds
+            if (player.x < 0) {
+                player.x = 0;
+            } else if (player.x + player.width > canvas.width) {
+                player.x = canvas.width - player.width;
+            }
+        }
+
+        // Fire a bullet from the player
+        function fireBullet() {
+            const bulletWidth = Math.max(2, Math.round(3 * gameScale));
+            const bulletHeight = Math.round(8 * gameScale);
+            
+            bullets.push({
+                x: player.x + player.width / 2 - bulletWidth / 2,
+                y: player.y,
+                width: bulletWidth,
+                height: bulletHeight,
+                color: '#33ff33',
+                speed: BULLET_SPEED * gameScale
+            });
+        }
+
+        // Handle enemy shooting
+        function enemyShoot() {
+            if (enemies.length === 0) return;
+            
+            // Get only the bottom-most enemies in each column that can shoot
+            const shootingEnemies = [];
+            const columnMap = {};
+            
+            // Group enemies by column
+            enemies.forEach(enemy => {
+                const column = Math.round(enemy.x / (enemy.width + enemy.width * 0.3));
+                if (!columnMap[column] || enemy.y > columnMap[column].y) {
+                    columnMap[column] = enemy;
+                }
+            });
+            
+            // Get bottom enemies from each column
+            for (const column in columnMap) {
+                shootingEnemies.push(columnMap[column]);
+            }
+            
+            // Randomly select bottom enemies to shoot
+            shootingEnemies.forEach(enemy => {
+                if (Math.random() < currentEnemyFireChance) {
+                    const bulletWidth = Math.max(2, Math.round(3 * gameScale));
+                    const bulletHeight = Math.round(8 * gameScale);
+                    
+                    enemyBullets.push({
+                        x: enemy.x + enemy.width / 2 - bulletWidth / 2,
+                        y: enemy.y + enemy.height,
+                        width: bulletWidth,
+                        height: bulletHeight,
+                        color: '#FF5555',
+                        speed: ENEMY_BULLET_SPEED * gameScale
+                    });
+                }
+            });
+        }
+
+        // Create shields
+        function createShields() {
+            shields = [];
+            const blockSize = Math.round(5 * gameScale);
+            const shieldWidth = SHIELD_COLS * blockSize;
+            const shieldHeight = SHIELD_ROWS * blockSize;
+            
+            // Calculate shield Y position based on orientation
+            let shieldY;
+            if (isPortrait) {
+                // Position shields closer to player in portrait mode
+                shieldY = canvas.height - (player.height + 120 * gameScale);
+            } else {
+                shieldY = canvas.height - (120 * gameScale);
+            }
+            
+            // Adjust spacing for portrait mode (3 shields)
+            const shieldSpacing = canvas.width / (SHIELD_COUNT + 1);
+            
+            for (let i = 0; i < SHIELD_COUNT; i++) {
+                const shield = {
+                    x: shieldSpacing * (i + 1) - shieldWidth / 2,
+                    y: shieldY,
+                    width: shieldWidth,
+                    height: shieldHeight,
+                    blocks: []
+                };
+                
+                // Create shield blocks
+                for (let row = 0; row < SHIELD_ROWS; row++) {
+                    for (let col = 0; col < SHIELD_COLS; col++) {
+                        // Create shield with a small arch in the bottom center
+                        if (!(row >= SHIELD_ROWS - 2 && col >= SHIELD_COLS/2 - 1 && col <= SHIELD_COLS/2)) {
+                            shield.blocks.push({
+                                x: shield.x + col * blockSize,
+                                y: shield.y + row * blockSize,
+                                width: blockSize,
+                                height: blockSize,
+                                health: 3
+                            });
+                        }
+                    }
+                }
+                shields.push(shield);
+            }
+        }
+
+        // Check for collisions with shields
+        function checkShieldCollisions() {
+            // Check player bullets against shields
+            bullets.forEach((bullet, bulletIndex) => {
+                let bulletRemoved = false;
+                shields.forEach(shield => {
+                    if (bulletRemoved) return;
+                    shield.blocks.forEach((block, blockIndex) => {
+                        if (bulletRemoved) return;
+                        if (checkCollision(bullet, block)) {
+                            block.health--;
+                            if (block.health <= 0) {
+                                shield.blocks.splice(blockIndex, 1);
+                            }
+                            bullets.splice(bulletIndex, 1);
+                            bulletRemoved = true;
+                        }
+                    });
+                });
+            });
+            
+            // Check enemy bullets against shields
+            enemyBullets.forEach((bullet, bulletIndex) => {
+                let bulletRemoved = false;
+                shields.forEach(shield => {
+                    if (bulletRemoved) return;
+                    shield.blocks.forEach((block, blockIndex) => {
+                        if (bulletRemoved) return;
+                        if (checkCollision(bullet, block)) {
+                            block.health--;
+                            if (block.health <= 0) {
+                                shield.blocks.splice(blockIndex, 1);
+                            }
+                            enemyBullets.splice(bulletIndex, 1);
+                            bulletRemoved = true;
+                        }
+                    });
+                });
+            });
+        }
+
+        // Update game state
+        function update(deltaTime) {
+            // Move player bullets
+            bullets.forEach((bullet, index) => {
+                bullet.y -= bullet.speed;
+                
+                // Remove bullets that have gone off-screen
+                if (bullet.y + bullet.height < 0) {
+                    bullets.splice(index, 1);
+                }
+            });
+            
+            // Move enemy bullets
+            enemyBullets.forEach((bullet, index) => {
+                bullet.y += bullet.speed;
+                
+                // Remove bullets that have gone off-screen
+                if (bullet.y > canvas.height) {
+                    enemyBullets.splice(index, 1);
+                }
+                
+                // Check for collision with player
+                if (checkCollision(bullet, player)) {
+                    gameOver();
+                }
+            });
+            
+            // Move enemies
+            enemyMoveDownCounter += deltaTime;
+            if (enemyMoveDownCounter >= ENEMY_MOVE_INTERVAL) {
+                enemyMoveDownCounter = 0;
+                moveEnemies();
+            }
+            
+            // Enemy shooting
+            enemyShoot();
+            
+            // Check for bullet collisions with enemies
+            checkBulletEnemyCollisions();
+            
+            // Check for bullet collisions with shields
+            checkShieldCollisions();
+            
+            // Check if any enemies have reached the bottom
+            checkEnemyReachedBottom();
+            
+            // Check if all enemies are destroyed
+            if (enemies.length === 0) {
+                createEnemies();
+            }
+        }
+
+        // Move the enemies
+        function moveEnemies() {
+            let moveDown = false;
+            let reachedEdge = false;
+            
+            // Check if any enemy has reached the edge
+            enemies.forEach(enemy => {
+                if ((enemyDirection === 1 && enemy.x + enemy.width >= canvas.width) || 
+                    (enemyDirection === -1 && enemy.x <= 0)) {
+                    reachedEdge = true;
+                }
+            });
+            
+            // Change direction and move down if reached edge
+            if (reachedEdge) {
+                enemyDirection *= -1;
+                moveDown = true;
+                directionChanges++;
+                
+                // Increase enemy fire chance each time they change direction
+                currentEnemyFireChance = baseEnemyFireChance + (directionChanges * 0.002);
+                
+                // Cap the max fire chance
+                if (currentEnemyFireChance > 0.02) {
+                    currentEnemyFireChance = 0.02;
+                }
+            }
+            
+            // Move all enemies
+            enemies.forEach(enemy => {
+                enemy.x += enemyDirection * 10;
+                if (moveDown) {
+                    enemy.y += 20;
+                }
+            });
+        }
+
+        // Check for collisions between bullets and enemies
+        function checkBulletEnemyCollisions() {
+            bullets.forEach((bullet, bulletIndex) => {
+                enemies.forEach((enemy, enemyIndex) => {
+                    if (checkCollision(bullet, enemy)) {
+                        // Add to score - 100 points per alien
+                        score += 100;
+                        document.getElementById('current-score').textContent = `Score: ${score}`;
+                        
+                        // Update high score if needed
+                        if (score > highScore) {
+                            highScore = score;
+                            localStorage.setItem('highScore', highScore);
+                            document.getElementById('high-score').textContent = `High Score: ${highScore}`;
+                        }
+                        
+                        // Remove the bullet and enemy
+                        bullets.splice(bulletIndex, 1);
+                        enemies.splice(enemyIndex, 1);
+                    }
+                });
+            });
+        }
+
+        // Check if any enemy has reached the player's level
+        function checkEnemyReachedBottom() {
+            enemies.forEach(enemy => {
+                if (enemy.y + enemy.height >= player.y) {
+                    gameOver();
+                }
+            });
+        }
+
+        // Check for collision between two objects
+        function checkCollision(objA, objB) {
+            return objA.x < objB.x + objB.width &&
+                   objA.x + objA.width > objB.x &&
+                   objA.y < objB.y + objB.height &&
+                   objA.y + objA.height > objB.y;
+        }
+
+        // Game over
+        function gameOver() {
+            gameActive = false;
+            
+            // Show loading screen with restart option
+            const loadingScreen = document.getElementById('loading-screen');
+            const gameContainer = document.getElementById('game-container');
+            const startButton = document.getElementById('start-button');
+            
+            loadingScreen.classList.remove('hidden');
+            gameContainer.classList.add('hidden');
+            
+            startButton.textContent = 'PLAY AGAIN';
+            document.querySelector('#loading-screen h1').textContent = 'GAME OVER';
+            document.querySelector('#loading-screen p').textContent = `Final Score: ${score}`;
+            
+            // Reset game variables
+            score = 0;
+            document.getElementById('current-score').textContent = `Score: 0`;
+            bullets = [];
+            enemyBullets = [];
+            directionChanges = 0;
+            currentEnemyFireChance = baseEnemyFireChance;
+        }
+
+        // Draw game objects
+        function draw() {
+            // Clear canvas
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw player (triangle ship with increased visibility)
+            ctx.fillStyle = '#33ff33';
+            ctx.beginPath();
+            ctx.moveTo(player.x + player.width / 2, player.y);
+            ctx.lineTo(player.x, player.y + player.height);
+            ctx.lineTo(player.x + player.width, player.y + player.height);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Draw ship cannon (more visible on iPhone)
+            const cannonWidth = Math.round(8 * gameScale);
+            const cannonHeight = Math.round(12 * gameScale);
+            ctx.fillRect(player.x + player.width / 2 - cannonWidth / 2, player.y - cannonHeight, cannonWidth, cannonHeight);
+            
+            // Draw player bullets
+            bullets.forEach(bullet => {
+                ctx.fillStyle = bullet.color;
+                ctx.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
+            });
+            
+            // Draw shields
+            shields.forEach(shield => {
+                shield.blocks.forEach(block => {
+                    // Color based on health
+                    let alpha = block.health / 3;
+                    ctx.fillStyle = `rgba(0, 255, 255, ${alpha})`;
+                    ctx.fillRect(block.x, block.y, block.width, block.height);
+                });
+            });
+            
+            // Draw enemies (pixelated space invader style)
+            enemies.forEach(enemy => {
+                ctx.fillStyle = enemy.color;
+                
+                const pixelSize = Math.max(2, Math.round(4 * gameScale));
+                const startX = enemy.x;
+                const startY = enemy.y;
+                
+                // Draw pixelated enemy based on row position
+                const rowIndex = Math.floor((enemy.y - (50 * gameScale)) / (enemy.height + enemy.height * 0.3));
+                
+                if (rowIndex % 3 === 0) {
+                    // Type 1 enemy (squid-like)
+                    const pixels = [
+                        [0,0,1,1,0,0],
+                        [0,1,1,1,1,0],
+                        [1,1,1,1,1,1],
+                        [1,0,1,1,0,1],
+                        [1,1,1,1,1,1]
+                    ];
+                    drawPixelArt(startX, startY, pixelSize, pixels, enemy.color);
+                } else if (rowIndex % 3 === 1) {
+                    // Type 2 enemy (crab-like)
+                    const pixels = [
+                        [0,1,0,0,1,0],
+                        [0,0,1,1,0,0],
+                        [0,1,1,1,1,0],
+                        [1,0,1,1,0,1],
+                        [1,1,1,1,1,1]
+                    ];
+                    drawPixelArt(startX, startY, pixelSize, pixels, enemy.color);
+                } else {
+                    // Type 3 enemy (octopus-like)
+                    const pixels = [
+                        [0,0,1,1,0,0],
+                        [1,1,1,1,1,1],
+                        [1,0,1,1,0,1],
+                        [1,1,1,1,1,1],
+                        [0,1,0,0,1,0]
+                    ];
+                    drawPixelArt(startX, startY, pixelSize, pixels, enemy.color);
+                }
+            });
+            
+            // Draw enemy bullets
+            enemyBullets.forEach(bullet => {
+                ctx.fillStyle = bullet.color;
+                // Draw zigzag bullet
+                const zigHeight = Math.max(1, Math.round(3 * gameScale));
+                const zigOffset = Math.max(1, Math.round(2 * gameScale));
+                for (let i = 0; i < bullet.height; i += zigHeight) {
+                    const offset = (i % (zigHeight * 2) < zigHeight) ? -zigOffset : zigOffset;
+                    ctx.fillRect(bullet.x + offset, bullet.y + i, bullet.width, Math.max(1, Math.round(2 * gameScale)));
+                }
+            });
+        }
+
+        // Helper to draw pixel art
+        function drawPixelArt(startX, startY, pixelSize, pixels, color) {
+            ctx.fillStyle = color;
+            for (let y = 0; y < pixels.length; y++) {
+                for (let x = 0; x < pixels[y].length; x++) {
+                    if (pixels[y][x]) {
+                        ctx.fillRect(
+                            startX + x * pixelSize, 
+                            startY + y * pixelSize, 
+                            pixelSize, 
+                            pixelSize
+                        );
+                    }
+                }
+            }
+        }
+
+        // Game loop
+        function gameLoop(currentTime) {
+            if (!gameActive) return;
+            
+            // Calculate delta time
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+            
+            // Update and draw
+            update(deltaTime);
+            draw();
+            
+            // Continue the loop
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Reposition game elements when screen size changes
+        function repositionGameElements() {
+            // Calculate new scale based on current screen size
+            calculateGameScale();
+            
+            // Update portrait status
+            isPortrait = window.innerHeight > window.innerWidth;
+            
+            // Reposition and resize player
+            const scaledPlayerWidth = Math.round(32 * gameScale);
+            const scaledPlayerHeight = Math.round(24 * gameScale);
+            
+            // Position player at bottom of screen with padding
+            const bottomPadding = isPortrait ? 60 * gameScale : 20 * gameScale;
+            
+            player.width = scaledPlayerWidth;
+            player.height = scaledPlayerHeight;
+            player.x = canvas.width / 2 - scaledPlayerWidth / 2;
+            player.y = canvas.height - scaledPlayerHeight - bottomPadding;
+            player.speed = PLAYER_SPEED * gameScale;
+            
+            // Reposition and resize enemies
+            if (enemies.length > 0) {
+                const scaledEnemyWidth = Math.round(24 * gameScale);
+                const scaledEnemyHeight = Math.round(16 * gameScale);
+                const scaledPadding = Math.round(ENEMY_PADDING * gameScale);
+                
+                // Calculate width available for enemies and adjust padding if needed
+                const availableWidth = canvas.width * 0.9; // Use 90% of canvas width
+                const requiredWidth = ENEMIES_PER_ROW * scaledEnemyWidth;
+                const adjustedPadding = Math.max(2, Math.min(scaledPadding, 
+                    (availableWidth - requiredWidth) / (ENEMIES_PER_ROW - 1)));
+                
+                const totalEnemyWidth = ENEMIES_PER_ROW * scaledEnemyWidth + (ENEMIES_PER_ROW - 1) * adjustedPadding;
+                const startX = (canvas.width - totalEnemyWidth) / 2;
+                
+                // Start higher up in portrait mode
+                const topMargin = isPortrait ? 60 * gameScale : 50 * gameScale;
+                
+                // Get Y offset of first row based on current positions
+                const firstEnemy = enemies[0];
+                let rowYOffset = topMargin - firstEnemy.y;
+                
+                // Update enemy sizes and positions
+                enemies.forEach((enemy) => {
+                    enemy.width = scaledEnemyWidth;
+                    enemy.height = scaledEnemyHeight;
+                    enemy.y += rowYOffset;
+                });
+                
+                // Redistribute enemies horizontally
+                let currentRow = 0;
+                let enemiesInCurrentRow = 0;
+                let currentRowY = enemies[0].y;
+                
+                enemies.forEach((enemy) => {
+                    // Check if we're on a new row
+                    if (enemy.y > currentRowY + scaledEnemyHeight/2) {
+                        currentRow++;
+                        enemiesInCurrentRow = 0;
+                        currentRowY = enemy.y;
+                    }
+                    
+                    // Position horizontally
+                    enemy.x = startX + enemiesInCurrentRow * (scaledEnemyWidth + adjustedPadding);
+                    enemiesInCurrentRow++;
+                });
+            }
+            
+            // Reposition and resize shields
+            if (shields.length > 0) {
+                const blockSize = Math.round(5 * gameScale);
+                const shieldWidth = SHIELD_COLS * blockSize;
+                const shieldHeight = SHIELD_ROWS * blockSize;
+                
+                // Calculate shield Y position based on orientation
+                let shieldY;
+                if (isPortrait) {
+                    // Position shields closer to player in portrait mode
+                    shieldY = canvas.height - (player.height + 120 * gameScale);
+                } else {
+                    shieldY = canvas.height - (120 * gameScale);
+                }
+                
+                const shieldSpacing = canvas.width / (SHIELD_COUNT + 1);
+                
+                shields.forEach((shield, index) => {
+                    const newX = shieldSpacing * (index + 1) - shieldWidth / 2;
+                    const newY = shieldY;
+                    
+                    // Calculate the shift
+                    const deltaX = newX - shield.x;
+                    const deltaY = newY - shield.y;
+                    
+                    // Update shield position and size
+                    shield.x = newX;
+                    shield.y = newY;
+                    shield.width = shieldWidth;
+                    shield.height = shieldHeight;
+                    
+                    // Update blocks
+                    shield.blocks.forEach(block => {
+                        // Calculate relative position in the shield
+                        const relCol = Math.round((block.x - (shield.x - deltaX)) / (block.width));
+                        const relRow = Math.round((block.y - (shield.y - deltaY)) / (block.height));
+                        
+                        // Update block size and position
+                        block.width = blockSize;
+                        block.height = blockSize;
+                        block.x = shield.x + relCol * blockSize;
+                        block.y = shield.y + relRow * blockSize;
+                    });
+                });
+            }
+        }
+    </script>
+</body>
+</html> 
