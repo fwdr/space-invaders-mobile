@@ -1,18 +1,10 @@
 {
   "version": 2,
   "builds": [
-    { "src": "server.js", "use": "@vercel/node" },
-    { "src": "*.html", "use": "@vercel/static" },
-    { "src": "css/**", "use": "@vercel/static" },
-    { "src": "js/**", "use": "@vercel/static" },
-    { "src": "assets/**", "use": "@vercel/static" }
+    { "src": "*.html", "use": "@vercel/static" }
   ],
   "routes": [
-    { "src": "/", "dest": "index.html" },
-    { "src": "/css/(.*)", "dest": "css/$1" },
-    { "src": "/js/(.*)", "dest": "js/$1" },
-    { "src": "/assets/(.*)", "dest": "assets/$1" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "server.js" }
+    { "src": "/", "dest": "space-invaders-single-file.html" },
+    { "handle": "filesystem" }
   ]
 } 
