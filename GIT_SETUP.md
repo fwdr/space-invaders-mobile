@@ -49,13 +49,18 @@ After pushing to a remote repository, you can connect the repository to Vercel f
 2. Click "Import Project" and select your Git provider (GitHub, GitLab, or Bitbucket)
 3. Give Vercel permission to access your repositories
 4. Select the space-invaders-mobile repository
-5. Configure your project (the default settings should work)
+5. Configure your project:
+   - The vercel.json file in the repository already has the necessary configuration
+   - It will automatically serve the single HTML file that contains the entire game
 6. Click "Deploy"
 
 Vercel will automatically deploy your game whenever you push changes to your repository.
 
-Alternatively, you can deploy directly using the included script:
+## Project Structure
 
-```bash
-./deploy.sh
-``` 
+This project has been simplified to use a single-file approach:
+- `space-invaders-single-file.html` - Contains all HTML, CSS, and JavaScript for the game
+- `404.html` - Custom error page for invalid URLs
+- `vercel.json` - Configuration for Vercel deployment
+
+No server setup or build process is required. You can run the game locally by simply opening the HTML file in a browser. 

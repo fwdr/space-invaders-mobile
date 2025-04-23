@@ -5,6 +5,7 @@
   ],
   "routes": [
     { "src": "/", "dest": "space-invaders-single-file.html" },
-    { "handle": "filesystem" }
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "status": 404, "dest": "/404.html" }
   ]
 } 
