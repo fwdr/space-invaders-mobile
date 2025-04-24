@@ -175,15 +175,17 @@
     <script>
         // Game constants
         const ENEMY_ROWS = 5;
-        const ENEMIES_PER_ROW = 10;
+        const ENEMIES_PER_ROW = 11;
         const ENEMY_PADDING = 10;
         const PLAYER_SPEED = 7;
         const BULLET_SPEED = 7;
         const ENEMY_BULLET_SPEED = 3;
-        const ENEMY_MOVE_INTERVAL = 1000;
+        const ENEMY_MOVE_INTERVAL = 1000; // Starting interval - will decrease as enemies are destroyed
         const SHIELD_ROWS = 4;
         const SHIELD_COLS = 8;
         const SHIELD_COUNT = 3;
+        const MIN_ENEMY_MOVE_INTERVAL = 100; // Minimum move interval (fastest speed)
+        const TOTAL_ENEMIES = ENEMY_ROWS * ENEMIES_PER_ROW;
 
         // Game variables
         let canvas;
@@ -209,6 +211,14 @@
         let gameScale = 1.0;
         let isPortrait = window.innerHeight > window.innerWidth;
         let lastTouchTime = 0;
+        let shotsFired = 0;
+        let shotsUntilMysteryShip = 23;
+        let mysteryShip = null;
+        let lives = 3;
+        let level = 1;
+        let levelStartY = 0;
+        let currentEnemyMoveInterval = ENEMY_MOVE_INTERVAL;
+        let initialEnemyCount = 0;
 
         // Game initialization
         document.addEventListener('DOMContentLoaded', () => {
@@ -249,10 +259,21 @@
             resizeCanvas();
             window.addEventListener('resize', resizeCanvas);
             
+            // Reset game variables
+            score = 0;
+            document.getElementById('current-score').textContent = `Score: 0`;
+            lives = 3;
+            level = 1;
+            levelStartY = 0;
+            currentEnemyMoveInterval = ENEMY_MOVE_INTERVAL;
+            
             // Initialize game objects
             createPlayer();
             createEnemies();
             createShields();
+            
+            // Record initial enemy count
+            initialEnemyCount = enemies.length;
             
             // Setup event listeners for controls
             setupControls();
@@ -369,18 +390,31 @@
             const totalEnemyWidth = ENEMIES_PER_ROW * scaledEnemyWidth + (ENEMIES_PER_ROW - 1) * adjustedPadding;
             const startX = (canvas.width - totalEnemyWidth) / 2;
             
-            // Start higher up in portrait mode
-            const topMargin = isPortrait ? 60 * gameScale : 50 * gameScale;
+            // Start higher up in portrait mode, adjusted for level
+            const baseTopMargin = isPortrait ? 60 * gameScale : 50 * gameScale;
+            // Each level, aliens start 20 pixels lower (up to a maximum)
+            const levelOffset = Math.min((level - 1) * 20 * gameScale, 120 * gameScale);
+            const topMargin = baseTopMargin + levelOffset + levelStartY;
             
             for (let row = 0; row < ENEMY_ROWS; row++) {
                 for (let col = 0; col < ENEMIES_PER_ROW; col++) {
+                    // Determine points based on row position
+                    let points;
+                    if (row === 0) {
+                        points = 50; // Top row: 50 points
+                    } else if (row <= 2) {
+                        points = 20; // Middle 2 rows: 20 points
+                    } else {
+                        points = 10; // Bottom 2 rows: 10 points
+                    }
+                    
                     enemies.push({
                         x: startX + col * (scaledEnemyWidth + adjustedPadding),
                         y: topMargin + row * (scaledEnemyHeight + scaledPadding),
                         width: scaledEnemyWidth,
                         height: scaledEnemyHeight,
                         color: getEnemyColor(row),
-                        points: (ENEMY_ROWS - row) * 10
+                        points: points
                     });
                 }
             }
@@ -468,6 +502,9 @@
 
         // Fire a bullet from the player
         function fireBullet() {
+            // Only allow one bullet on screen at a time
+            if (bullets.length > 0) return;
+            
             const bulletWidth = Math.max(2, Math.round(3 * gameScale));
             const bulletHeight = Math.round(8 * gameScale);
             
@@ -479,11 +516,22 @@
                 color: '#33ff33',
                 speed: BULLET_SPEED * gameScale
             });
+            
+            // Increment shot counter and check for mystery ship
+            shotsFired++;
+            if (shotsFired >= shotsUntilMysteryShip && mysteryShip === null) {
+                createMysteryShip();
+                // Reset counter for next mystery ship
+                shotsUntilMysteryShip = shotsFired + 15;
+            }
         }
 
         // Handle enemy shooting
         function enemyShoot() {
             if (enemies.length === 0) return;
+            
+            // Limit to maximum 3 enemy bullets on screen at once
+            if (enemyBullets.length >= 3) return;
             
             // Get only the bottom-most enemies in each column that can shoot
             const shootingEnemies = [];
@@ -518,6 +566,26 @@
                     });
                 }
             });
+        }
+
+        // Create mystery ship
+        function createMysteryShip() {
+            const shipWidth = Math.round(36 * gameScale);
+            const shipHeight = Math.round(16 * gameScale);
+            const topMargin = Math.round(30 * gameScale);
+            
+            // Randomly decide direction (left to right or right to left)
+            const direction = Math.random() < 0.5 ? 1 : -1;
+            
+            mysteryShip = {
+                x: direction === 1 ? -shipWidth : canvas.width,
+                y: topMargin,
+                width: shipWidth,
+                height: shipHeight,
+                speed: Math.round(3 * gameScale) * direction,
+                color: '#FF0000',
+                points: 100 // Random between 100 and 300 when hit
+            };
         }
 
         // Create shields
@@ -558,7 +626,7 @@
                                 y: shield.y + row * blockSize,
                                 width: blockSize,
                                 height: blockSize,
-                                health: 3
+                                health: 2 // Reduced from 3 to 2 to make shields less resilient
                             });
                         }
                     }
@@ -606,6 +674,18 @@
                     });
                 });
             });
+            
+            // Check enemies against shields (destroy shield blocks when enemies get low enough)
+            enemies.forEach(enemy => {
+                shields.forEach(shield => {
+                    // Only check collision if enemy is low enough (below a certain threshold from the top)
+                    if (enemy.y + enemy.height > shield.y - 5) {
+                        shield.blocks = shield.blocks.filter(block => {
+                            return !checkCollision(enemy, block);
+                        });
+                    }
+                });
+            });
         }
 
         // Update game state
@@ -631,15 +711,27 @@
                 
                 // Check for collision with player
                 if (checkCollision(bullet, player)) {
-                    gameOver();
+                    enemyBullets.splice(index, 1);
+                    playerHit();
                 }
             });
             
             // Move enemies
             enemyMoveDownCounter += deltaTime;
-            if (enemyMoveDownCounter >= ENEMY_MOVE_INTERVAL) {
+            if (enemyMoveDownCounter >= currentEnemyMoveInterval) {
                 enemyMoveDownCounter = 0;
                 moveEnemies();
+            }
+            
+            // Move mystery ship if active
+            if (mysteryShip) {
+                mysteryShip.x += mysteryShip.speed;
+                
+                // Check if mystery ship has moved off screen
+                if ((mysteryShip.speed > 0 && mysteryShip.x > canvas.width) || 
+                    (mysteryShip.speed < 0 && mysteryShip.x < -mysteryShip.width)) {
+                    mysteryShip = null;
+                }
             }
             
             // Enemy shooting
@@ -651,12 +743,17 @@
             // Check for bullet collisions with shields
             checkShieldCollisions();
             
+            // Check for bullet collisions with mystery ship
+            checkBulletMysteryShipCollision();
+            
             // Check if any enemies have reached the bottom
             checkEnemyReachedBottom();
             
             // Check if all enemies are destroyed
             if (enemies.length === 0) {
+                level++;
                 createEnemies();
+                createShields();
             }
         }
 
@@ -688,13 +785,50 @@
                 }
             }
             
+            // Calculate movement speed based on remaining enemies
+            // Fewer enemies = faster movement
+            let baseSpeed = 10 * gameScale;
+            const percentageRemaining = enemies.length / initialEnemyCount;
+            const speedMultiplier = Math.max(1, 3 * (1 - percentageRemaining));
+            
+            // Special case for last enemy
+            let lastEnemySpeedMultiplier = 1;
+            if (enemies.length === 1) {
+                lastEnemySpeedMultiplier = 5; // Last enemy moves very fast
+                
+                // Slightly faster left to right than right to left
+                if (enemyDirection === 1) { // Left to right
+                    lastEnemySpeedMultiplier *= 1.2;
+                }
+            }
+            
             // Move all enemies
             enemies.forEach(enemy => {
-                enemy.x += enemyDirection * 10;
+                // Apply speed based on number of enemies and direction
+                let moveSpeed = baseSpeed * speedMultiplier;
+                
+                // Apply last enemy modifier if needed
+                if (enemies.length === 1) {
+                    moveSpeed *= lastEnemySpeedMultiplier;
+                }
+                
+                enemy.x += enemyDirection * moveSpeed;
                 if (moveDown) {
-                    enemy.y += 20;
+                    enemy.y += 20 * gameScale;
                 }
             });
+            
+            // Update enemy movement interval (speed) based on remaining enemies
+            // Start with base interval, reduce as enemies are destroyed
+            currentEnemyMoveInterval = ENEMY_MOVE_INTERVAL * percentageRemaining;
+            
+            // Ensure we don't go below the minimum interval
+            currentEnemyMoveInterval = Math.max(currentEnemyMoveInterval, MIN_ENEMY_MOVE_INTERVAL);
+            
+            // Special case for last enemy
+            if (enemies.length === 1) {
+                currentEnemyMoveInterval = MIN_ENEMY_MOVE_INTERVAL;
+            }
         }
 
         // Check for collisions between bullets and enemies
@@ -702,8 +836,8 @@
             bullets.forEach((bullet, bulletIndex) => {
                 enemies.forEach((enemy, enemyIndex) => {
                     if (checkCollision(bullet, enemy)) {
-                        // Add to score - 100 points per alien
-                        score += 100;
+                        // Add to score based on enemy points value
+                        score += enemy.points;
                         document.getElementById('current-score').textContent = `Score: ${score}`;
                         
                         // Update high score if needed
@@ -716,6 +850,18 @@
                         // Remove the bullet and enemy
                         bullets.splice(bulletIndex, 1);
                         enemies.splice(enemyIndex, 1);
+                        
+                        // Recalculate enemy movement interval based on remaining enemies
+                        if (enemies.length > 0) {
+                            const percentageRemaining = enemies.length / initialEnemyCount;
+                            currentEnemyMoveInterval = ENEMY_MOVE_INTERVAL * percentageRemaining;
+                            currentEnemyMoveInterval = Math.max(currentEnemyMoveInterval, MIN_ENEMY_MOVE_INTERVAL);
+                            
+                            // Special case for last enemy
+                            if (enemies.length === 1) {
+                                currentEnemyMoveInterval = MIN_ENEMY_MOVE_INTERVAL;
+                            }
+                        }
                     }
                 });
             });
@@ -736,6 +882,52 @@
                    objA.x + objA.width > objB.x &&
                    objA.y < objB.y + objB.height &&
                    objA.y + objA.height > objB.y;
+        }
+
+        // Check for collision between bullets and mystery ship
+        function checkBulletMysteryShipCollision() {
+            if (!mysteryShip) return;
+            
+            bullets.forEach((bullet, bulletIndex) => {
+                if (checkCollision(bullet, mysteryShip)) {
+                    // Random score between 100, 150, or 300
+                    const mysteryScores = [100, 150, 300];
+                    const scoreIndex = Math.floor(Math.random() * mysteryScores.length);
+                    const points = mysteryScores[scoreIndex];
+                    
+                    // Add to score
+                    score += points;
+                    document.getElementById('current-score').textContent = `Score: ${score}`;
+                    
+                    // Update high score if needed
+                    if (score > highScore) {
+                        highScore = score;
+                        localStorage.setItem('highScore', highScore);
+                        document.getElementById('high-score').textContent = `High Score: ${highScore}`;
+                    }
+                    
+                    // Remove the bullet and mystery ship
+                    bullets.splice(bulletIndex, 1);
+                    mysteryShip = null;
+                }
+            });
+        }
+
+        // Player hit by enemy bullet
+        function playerHit() {
+            lives--;
+            
+            if (lives <= 0) {
+                gameOver();
+            } else {
+                // Brief invulnerability
+                player.color = 'rgba(51, 255, 51, 0.5)';
+                setTimeout(() => {
+                    if (player) {
+                        player.color = '#33ff33';
+                    }
+                }, 1500);
+            }
         }
 
         // Game over
@@ -761,6 +953,12 @@
             enemyBullets = [];
             directionChanges = 0;
             currentEnemyFireChance = baseEnemyFireChance;
+            shotsFired = 0;
+            shotsUntilMysteryShip = 23;
+            mysteryShip = null;
+            lives = 3;
+            level = 1;
+            levelStartY = 0;
         }
 
         // Draw game objects
@@ -770,7 +968,7 @@
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
             // Draw player (triangle ship with increased visibility)
-            ctx.fillStyle = '#33ff33';
+            ctx.fillStyle = player.color || '#33ff33';
             ctx.beginPath();
             ctx.moveTo(player.x + player.width / 2, player.y);
             ctx.lineTo(player.x, player.y + player.height);
@@ -789,11 +987,30 @@
                 ctx.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
             });
             
+            // Draw mystery ship if active
+            if (mysteryShip) {
+                ctx.fillStyle = mysteryShip.color;
+                ctx.fillRect(mysteryShip.x, mysteryShip.y, mysteryShip.width, mysteryShip.height / 2);
+                
+                // Draw the bottom part with cutouts (saucer shape)
+                const segmentWidth = mysteryShip.width / 8;
+                for (let i = 0; i < 8; i++) {
+                    if (i !== 0 && i !== 7) { // Skip first and last segment
+                        ctx.fillRect(
+                            mysteryShip.x + i * segmentWidth,
+                            mysteryShip.y + mysteryShip.height / 2,
+                            segmentWidth,
+                            mysteryShip.height / 2
+                        );
+                    }
+                }
+            }
+            
             // Draw shields
             shields.forEach(shield => {
                 shield.blocks.forEach(block => {
                     // Color based on health
-                    let alpha = block.health / 3;
+                    let alpha = block.health / 2; // Adjusted for new max health of 2
                     ctx.fillStyle = `rgba(0, 255, 255, ${alpha})`;
                     ctx.fillRect(block.x, block.y, block.width, block.height);
                 });
@@ -854,6 +1071,43 @@
                     ctx.fillRect(bullet.x + offset, bullet.y + i, bullet.width, Math.max(1, Math.round(2 * gameScale)));
                 }
             });
+            
+            // Draw lives indicator
+            drawLivesIndicator();
+            
+            // Draw level indicator
+            ctx.fillStyle = '#33ff33';
+            ctx.font = `${Math.round(12 * gameScale)}px 'RetroPixel', 'Courier New', monospace`;
+            ctx.textAlign = 'right';
+            ctx.fillText(`LEVEL: ${level}`, canvas.width - 10, canvas.height - 10);
+        }
+
+        // Draw lives indicator at bottom left
+        function drawLivesIndicator() {
+            const shipWidth = Math.round(20 * gameScale);
+            const shipHeight = Math.round(15 * gameScale);
+            const padding = Math.round(5 * gameScale);
+            const bottomPadding = Math.round(10 * gameScale);
+            
+            ctx.fillStyle = '#33ff33';
+            ctx.font = `${Math.round(12 * gameScale)}px 'RetroPixel', 'Courier New', monospace`;
+            ctx.textAlign = 'left';
+            ctx.fillText('LIVES:', 10, canvas.height - bottomPadding - shipHeight / 2);
+            
+            // Draw ship icons for remaining lives
+            for (let i = 0; i < lives; i++) {
+                const x = 70 * gameScale + i * (shipWidth + padding);
+                const y = canvas.height - bottomPadding - shipHeight;
+                
+                // Draw ship triangle
+                ctx.fillStyle = '#33ff33';
+                ctx.beginPath();
+                ctx.moveTo(x + shipWidth / 2, y);
+                ctx.lineTo(x, y + shipHeight);
+                ctx.lineTo(x + shipWidth, y + shipHeight);
+                ctx.closePath();
+                ctx.fill();
+            }
         }
 
         // Helper to draw pixel art
@@ -925,8 +1179,10 @@
                 const totalEnemyWidth = ENEMIES_PER_ROW * scaledEnemyWidth + (ENEMIES_PER_ROW - 1) * adjustedPadding;
                 const startX = (canvas.width - totalEnemyWidth) / 2;
                 
-                // Start higher up in portrait mode
-                const topMargin = isPortrait ? 60 * gameScale : 50 * gameScale;
+                // Start higher up in portrait mode, adjusted for level
+                const baseTopMargin = isPortrait ? 60 * gameScale : 50 * gameScale;
+                const levelOffset = Math.min((level - 1) * 20 * gameScale, 120 * gameScale);
+                const topMargin = baseTopMargin + levelOffset + levelStartY;
                 
                 // Get Y offset of first row based on current positions
                 const firstEnemy = enemies[0];
